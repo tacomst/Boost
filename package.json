@@ -1,0 +1,8 @@
+{
+  "name": "project-boost-bingo",
+  "version": "1.0.0",
+  "description": "Card claim server for Project Boost Bingo (1 Year Anniversary)",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": { "express": "^4.19.2" }
+}
