@@ -86,6 +86,139 @@ app.get("/card/:cardId.pdf", (req, res) => {
   res.download(filePath, `${cardId}.pdf`);
 });
 
+// Interactive, clickable version of a card — squares turn green when tapped
+app.get("/play/:cardId", (req, res) => {
+  const cardId = req.params.cardId;
+  const card = allCards.find(c => c.card_id === cardId);
+  if (!card) {
+    return res.status(404).send("Card not found.");
+  }
+  res.send(renderPlayHtml(card));
+});
+
+function renderPlayHtml(card) {
+  const squaresHtml = card.grid.map((label, i) => {
+    const isFree = label.trim().toUpperCase() === "FREE";
+    return `<div class="sq${isFree ? " free marked" : ""}" data-index="${i}" data-free="${isFree}" onclick="toggleSquare(this)">
+      <span>${escapeHtml(label)}</span>
+    </div>`;
+  }).join("");
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>${escapeHtml(card.card_id)} — Project Boost Bingo</title>
+<style>
+  :root {
+    --blue: #004D71;
+    --green: #62D84E;
+    --dark: #1B1B1B;
+    --bg: #F4F8F9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg); color: var(--dark);
+    display: flex; flex-direction: column; align-items: center; min-height: 100vh; padding: 16px;
+  }
+  .header { text-align: center; margin-bottom: 6px; }
+  .header h1 { color: var(--blue); font-size: 18px; margin: 0 0 2px; letter-spacing: 0.5px; }
+  .header p { margin: 0; font-size: 12px; color: #667; }
+  .card-id { font-weight: 700; color: var(--blue); font-size: 15px; margin: 6px 0 14px; }
+  .letters {
+    display: grid; grid-template-columns: repeat(5, 1fr); max-width: 420px; width: 100%;
+    text-align: center; font-weight: 800; color: var(--blue); font-size: 16px; margin-bottom: 4px;
+  }
+  .grid {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px;
+    max-width: 420px; width: 100%;
+  }
+  .sq {
+    aspect-ratio: 1 / 1; background: white; border: 1.5px solid #d7dee1; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    padding: 4px; cursor: pointer; user-select: none; transition: background 0.15s, border-color 0.15s, transform 0.08s;
+  }
+  .sq span { font-size: 11px; font-weight: 600; line-height: 1.15; }
+  .sq:active { transform: scale(0.96); }
+  .sq.marked {
+    background: var(--green); border-color: var(--green); color: white;
+  }
+  .sq.free { cursor: default; }
+  .sq.free span { font-weight: 800; }
+  .note { max-width: 420px; text-align: center; font-size: 12px; color: #888; margin-top: 16px; }
+  .actions { margin-top: 18px; display: flex; gap: 10px; }
+  .btn {
+    display: inline-block; text-decoration: none; padding: 10px 16px; border-radius: 8px;
+    font-weight: 700; font-size: 13px;
+  }
+  .btn-outline { border: 1.5px solid var(--blue); color: var(--blue); }
+  .btn-outline:hover { background: #eef4f7; }
+  .reset { border: none; background: none; color: #c0392b; font-size: 12px; margin-top: 10px; cursor: pointer; text-decoration: underline; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <h1>PROJECT BOOST BINGO</h1>
+    <p>1 Year Anniversary Celebration</p>
+  </div>
+  <div class="card-id">${escapeHtml(card.card_id)}</div>
+  <div class="letters"><div>B</div><div>I</div><div>N</div><div>G</div><div>O</div></div>
+  <div class="grid" id="grid">
+    ${squaresHtml}
+  </div>
+  <p class="note">Tap a square when the host calls its answer. FREE is already marked. 5 in a row (any direction) = BINGO!</p>
+  <div class="actions">
+    <a class="btn btn-outline" href="/card/${encodeURIComponent(card.card_id)}.pdf" target="_blank">Download PDF</a>
+  </div>
+  <button class="reset" onclick="resetCard()">Reset my marks</button>
+
+<script>
+const STORAGE_KEY = 'boost-bingo-marks-${card.card_id}';
+
+function loadMarks() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) { return {}; }
+}
+function saveMarks(marks) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(marks)); } catch (e) {}
+}
+
+function toggleSquare(el) {
+  if (el.dataset.free === "true") return; // FREE always stays marked
+  const idx = el.dataset.index;
+  const marks = loadMarks();
+  const isMarked = el.classList.toggle('marked');
+  marks[idx] = isMarked;
+  saveMarks(marks);
+}
+
+function resetCard() {
+  document.querySelectorAll('.sq').forEach(el => {
+    if (el.dataset.free === "true") return;
+    el.classList.remove('marked');
+  });
+  saveMarks({});
+}
+
+// Restore saved marks on load
+(function restore() {
+  const marks = loadMarks();
+  document.querySelectorAll('.sq').forEach(el => {
+    if (el.dataset.free === "true") return;
+    if (marks[el.dataset.index]) el.classList.add('marked');
+  });
+})();
+</script>
+</body>
+</html>
+`;
+}
+
 // Host-only: quick view of claimed count
 app.get("/status", (req, res) => {
   const assignments = loadAssignments();
@@ -197,8 +330,12 @@ const SIGNUP_HTML = `
     padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 18px; margin: 12px 0;
   }
   .download-btn {
-    display: inline-block; margin-top: 14px; background: var(--blue); color: white;
+    display: inline-block; margin-top: 14px; background: var(--green); color: white;
     text-decoration: none; padding: 12px 22px; border-radius: 8px; font-weight: 700;
+  }
+  .download-btn-secondary {
+    display: inline-block; margin-top: 10px; background: transparent; color: var(--blue);
+    text-decoration: underline; padding: 4px 6px; border-radius: 8px; font-weight: 600; font-size: 13px;
   }
   .error { color: #c0392b; font-size: 13px; margin-top: 10px; display: none; }
   .footer-note { font-size: 12px; color: #888; margin-top: 16px; }
@@ -225,7 +362,9 @@ const SIGNUP_HTML = `
       <p>Your unique card:</p>
       <div class="card-id-badge" id="cardIdBadge"></div>
       <br/>
-      <a class="download-btn" id="downloadLink" href="#" target="_blank">Download My Card (PDF)</a>
+      <a class="download-btn" id="playLink" href="#">Play My Card (tap to mark squares)</a>
+      <br/>
+      <a class="download-btn-secondary" id="downloadLink" href="#" target="_blank">Download PDF version</a>
       <p class="footer-note">Keep your Card ID visible during the game to claim a prize.</p>
     </div>
   </div>
@@ -258,6 +397,7 @@ async function claimCard() {
     document.getElementById('formView').style.display = 'none';
     document.getElementById('resultView').style.display = 'block';
     document.getElementById('cardIdBadge').textContent = data.card_id;
+    document.getElementById('playLink').href = '/play/' + data.card_id;
     document.getElementById('downloadLink').href = '/card/' + data.card_id + '.pdf';
   } catch (e) {
     errorEl.textContent = 'Network error — please try again.';
